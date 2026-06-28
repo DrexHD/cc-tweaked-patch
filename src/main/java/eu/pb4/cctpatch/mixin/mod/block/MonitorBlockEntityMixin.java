@@ -4,6 +4,7 @@ import dan200.computercraft.api.peripheral.IComputerAccess;
 import dan200.computercraft.shared.peripheral.monitor.MonitorBlock;
 import dan200.computercraft.shared.peripheral.monitor.MonitorBlockEntity;
 import dan200.computercraft.shared.peripheral.monitor.ServerMonitor;
+import eu.pb4.cctpatch.impl.poly.ext.MonitorBlockEntityExt;
 import eu.pb4.cctpatch.impl.poly.font.Fonts;
 import eu.pb4.cctpatch.impl.poly.ext.ServerMonitorExt;
 import eu.pb4.cctpatch.impl.poly.ext.TerminalExt;
@@ -40,7 +41,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 @Mixin(MonitorBlockEntity.class)
-public abstract class MonitorBlockEntityMixin extends BlockEntity {
+public abstract class MonitorBlockEntityMixin extends BlockEntity implements MonitorBlockEntityExt {
     @Shadow private int xIndex;
     @Shadow private int yIndex;
 
@@ -204,6 +205,7 @@ public abstract class MonitorBlockEntityMixin extends BlockEntity {
     }
 
     @Unique
+    @Override
     public void updateWatchers() {
         if (this.world != null && this.display != null && this.canvas != null) {
             var pos = this.getPos();
