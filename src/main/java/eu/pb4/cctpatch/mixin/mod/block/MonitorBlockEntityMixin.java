@@ -207,7 +207,7 @@ public abstract class MonitorBlockEntityMixin extends BlockEntity implements Mon
     @Unique
     @Override
     public void updateWatchers() {
-        if (this.world != null && this.display != null && this.canvas != null) {
+        if (this.world != null && this.display != null && this.canvas != null && xIndex == 0 && yIndex == 0) {
             var pos = this.getPos();
             var players = ((ServerWorld) this.world).getPlayers((p) -> p.squaredDistanceTo(pos.getX(), pos.getY(), pos.getZ()) < 4096);
 
