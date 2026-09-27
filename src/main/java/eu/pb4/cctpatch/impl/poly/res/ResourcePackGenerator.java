@@ -1,9 +1,11 @@
 package eu.pb4.cctpatch.impl.poly.res;
 
+import com.google.common.hash.Hashing;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
 import dan200.computercraft.shared.computer.core.ComputerState;
 import eu.pb4.cctpatch.impl.ComputerCraftPolymerPatch;
+import eu.pb4.cctpatch.impl.config.PatchConfig;
 import eu.pb4.cctpatch.impl.poly.res.modeltype.TurtleOverlayModel;
 import eu.pb4.cctpatch.impl.poly.res.modeltype.TurtleUpgradeItemModel;
 import eu.pb4.cctpatch.impl.poly.res.property.PocketComputerStateProperty;
@@ -11,9 +13,12 @@ import eu.pb4.cctpatch.impl.poly.res.property.TurtleShowElfOverlay;
 import eu.pb4.cctpatch.impl.poly.res.tint.PocketComputerLight;
 import eu.pb4.cctpatch.impl.poly.model.TurtleModel;
 import eu.pb4.cctpatch.impl.poly.res.turtleupgrade.TurtleUpgradeModel;
+import eu.pb4.polymer.autohost.api.AutoHostUtils;
+import eu.pb4.polymer.autohost.api.ResourcePackDataProvider;
 import eu.pb4.polymer.resourcepack.api.PackResource;
 import eu.pb4.polymer.resourcepack.api.PolymerResourcePackUtils;
 import eu.pb4.polymer.resourcepack.api.ResourcePackBuilder;
+import eu.pb4.polymer.resourcepack.api.ResourcePackCreator;
 import eu.pb4.polymer.resourcepack.extras.api.ResourcePackExtras;
 import eu.pb4.polymer.resourcepack.extras.api.format.item.ItemAsset;
 import eu.pb4.polymer.resourcepack.extras.api.format.item.model.*;
@@ -23,34 +28,62 @@ import eu.pb4.polymer.resourcepack.extras.api.format.item.property.select.Select
 import eu.pb4.polymer.resourcepack.extras.api.format.item.tint.CustomModelDataTintSource;
 import eu.pb4.polymer.resourcepack.extras.api.format.item.tint.DyeTintSource;
 import eu.pb4.polymer.resourcepack.extras.api.format.item.tint.ItemTintSource;
+import net.fabricmc.fabric.api.event.Event;
+import net.fabricmc.fabric.api.networking.v1.ServerConfigurationConnectionEvents;
+import net.fabricmc.loader.api.FabricLoader;
 import nl.theepicblock.resourcelocatorapi.ResourceLocatorApi;
 
 import javax.imageio.ImageIO;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.ARGB;
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 
 public class ResourcePackGenerator {
-    public static void setup() {
-        PolymerResourcePackUtils.addModAssets("computercraft");
-        PolymerResourcePackUtils.addModAssets(ComputerCraftPolymerPatch.MOD_ID);
-        ResourcePackExtras.forDefault().addBridgedModelsFolder(Identifier.fromNamespaceAndPath("computercraft", "block"), ((identifier, resourcePackBuilder) -> {
-            if (identifier.getPath().equals("block/turtle_colour")) {
-                return new ItemAsset(new BasicItemModel(identifier, List.of(new DyeTintSource(0xFFFFFF))), ItemAsset.Properties.DEFAULT);
-            }
-            return new ItemAsset(new BasicItemModel(identifier), ItemAsset.Properties.DEFAULT);
-        }));
+    private static final Identifier ID = Identifier.fromNamespaceAndPath(ComputerCraftPolymerPatch.MOD_ID, "resource_pack");
+    public static final UUID UUID = java.util.UUID.nameUUIDFromBytes(ID.toString().getBytes(StandardCharsets.UTF_8));
+    public static final Identifier RESOURCE_PACK_PHASE = Identifier.fromNamespaceAndPath(ComputerCraftPolymerPatch.MOD_ID, "resource_pack_phase");
 
+    public static void setup() {
         SelectProperty.TYPES.put(PocketComputerStateProperty.ID, PocketComputerStateProperty.TYPE);
         BooleanProperty.TYPES.put(TurtleShowElfOverlay.ID, TurtleShowElfOverlay.CODEC);
         ItemTintSource.TYPES.put(PocketComputerLight.ID, PocketComputerLight.CODEC);
         ItemModel.TYPES.put(TurtleUpgradeItemModel.ID, TurtleUpgradeItemModel.CODEC);
         ItemModel.TYPES.put(TurtleOverlayModel.ID, TurtleOverlayModel.CODEC);
 
+        ResourcePackCreator creator = ResourcePackCreator.create();
+        ResourcePackExtras extras = ResourcePackExtras.of(creator);
+        extras.addBridgedModelsFolder(Identifier.fromNamespaceAndPath("computercraft", "block"), ((identifier, resourcePackBuilder) -> {
+            if (identifier.getPath().equals("block/turtle_colour")) {
+                return new ItemAsset(new BasicItemModel(identifier, List.of(new DyeTintSource(0xFFFFFF))), ItemAsset.Properties.DEFAULT);
+            }
+            return new ItemAsset(new BasicItemModel(identifier), ItemAsset.Properties.DEFAULT);
+        }));
+        creator.addAssetSource("computercraft");
+        creator.addAssetSource(ComputerCraftPolymerPatch.MOD_ID);
+        creator.creationEvent.register(ResourcePackGenerator::build);
         PolymerResourcePackUtils.RESOURCE_PACK_CREATION_EVENT.register(ResourcePackGenerator::build);
+        Path path = FabricLoader.getInstance().getGameDir().resolve(PatchConfig.instance.resourcePackPath);
+        try {
+            creator.build(path);
+            String hash = com.google.common.io.Files.asByteSource(path.toFile()).hash(Hashing.sha1()).toString();
+            AutoHostUtils.registerHostedFile(ID, path);
+
+
+            ServerConfigurationConnectionEvents.CONFIGURE.addPhaseOrdering(Event.DEFAULT_PHASE, RESOURCE_PACK_PHASE);
+            ServerConfigurationConnectionEvents.CONFIGURE.register(RESOURCE_PACK_PHASE, (listener, server) -> {
+                ResourcePackDataProvider provider = ResourcePackDataProvider.getActive();
+
+                listener.addTask(new OptionalResourcePackConfigurationTask(listener, provider.createProperties(listener.getPacketContext(), UUID, ID, hash)));
+            });
+        } catch (ExecutionException | InterruptedException | IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private static void build(ResourcePackBuilder builder) {

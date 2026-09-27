@@ -19,6 +19,9 @@ public final class PatchConfig {
     @SerializedName("enable_api_and_program_extensions")
     public boolean enableApiAndProgramExtensions = true;
 
+    @SerializedName("resource_pack_location")
+    public String resourcePackPath = "polymer/cc_tweaked_resource_pack.zip";
+
     public static PatchConfig loadOrCreateConfig() {
         try {
             PatchConfig config;
