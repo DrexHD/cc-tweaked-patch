@@ -1,11 +1,9 @@
 package eu.pb4.cctpatch.impl.poly.res;
 
-import com.google.common.hash.Hashing;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
 import dan200.computercraft.shared.computer.core.ComputerState;
 import eu.pb4.cctpatch.impl.ComputerCraftPolymerPatch;
-import eu.pb4.cctpatch.impl.config.PatchConfig;
 import eu.pb4.cctpatch.impl.poly.res.modeltype.TurtleOverlayModel;
 import eu.pb4.cctpatch.impl.poly.res.modeltype.TurtleUpgradeItemModel;
 import eu.pb4.cctpatch.impl.poly.res.property.PocketComputerStateProperty;
@@ -13,12 +11,10 @@ import eu.pb4.cctpatch.impl.poly.res.property.TurtleShowElfOverlay;
 import eu.pb4.cctpatch.impl.poly.res.tint.PocketComputerLight;
 import eu.pb4.cctpatch.impl.poly.model.TurtleModel;
 import eu.pb4.cctpatch.impl.poly.res.turtleupgrade.TurtleUpgradeModel;
-import eu.pb4.polymer.autohost.api.AutoHostUtils;
-import eu.pb4.polymer.autohost.api.ResourcePackDataProvider;
+import eu.pb4.polymer.core.api.item.PolymerItem;
 import eu.pb4.polymer.resourcepack.api.PackResource;
 import eu.pb4.polymer.resourcepack.api.PolymerResourcePackUtils;
 import eu.pb4.polymer.resourcepack.api.ResourcePackBuilder;
-import eu.pb4.polymer.resourcepack.api.ResourcePackCreator;
 import eu.pb4.polymer.resourcepack.extras.api.ResourcePackExtras;
 import eu.pb4.polymer.resourcepack.extras.api.format.item.ItemAsset;
 import eu.pb4.polymer.resourcepack.extras.api.format.item.model.*;
@@ -28,62 +24,37 @@ import eu.pb4.polymer.resourcepack.extras.api.format.item.property.select.Select
 import eu.pb4.polymer.resourcepack.extras.api.format.item.tint.CustomModelDataTintSource;
 import eu.pb4.polymer.resourcepack.extras.api.format.item.tint.DyeTintSource;
 import eu.pb4.polymer.resourcepack.extras.api.format.item.tint.ItemTintSource;
-import net.fabricmc.fabric.api.event.Event;
-import net.fabricmc.fabric.api.networking.v1.ServerConfigurationConnectionEvents;
-import net.fabricmc.loader.api.FabricLoader;
 import nl.theepicblock.resourcelocatorapi.ResourceLocatorApi;
 
 import javax.imageio.ImageIO;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.ARGB;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.ExecutionException;
+import java.util.Set;
 
 public class ResourcePackGenerator {
-    private static final Identifier ID = Identifier.fromNamespaceAndPath(ComputerCraftPolymerPatch.MOD_ID, "resource_pack");
-    public static final UUID UUID = java.util.UUID.nameUUIDFromBytes(ID.toString().getBytes(StandardCharsets.UTF_8));
-    public static final Identifier RESOURCE_PACK_PHASE = Identifier.fromNamespaceAndPath(ComputerCraftPolymerPatch.MOD_ID, "resource_pack_phase");
+    public static final String SUFFIX = "_polymer";
+    public static final Set<String> SPECIAL_MODELS = new HashSet<>();
 
     public static void setup() {
+        PolymerResourcePackUtils.addModAssets("computercraft");
+        PolymerResourcePackUtils.addModAssets(ComputerCraftPolymerPatch.MOD_ID);
         SelectProperty.TYPES.put(PocketComputerStateProperty.ID, PocketComputerStateProperty.TYPE);
         BooleanProperty.TYPES.put(TurtleShowElfOverlay.ID, TurtleShowElfOverlay.CODEC);
         ItemTintSource.TYPES.put(PocketComputerLight.ID, PocketComputerLight.CODEC);
         ItemModel.TYPES.put(TurtleUpgradeItemModel.ID, TurtleUpgradeItemModel.CODEC);
         ItemModel.TYPES.put(TurtleOverlayModel.ID, TurtleOverlayModel.CODEC);
 
-        ResourcePackCreator creator = ResourcePackCreator.create();
-        ResourcePackExtras extras = ResourcePackExtras.of(creator);
-        extras.addBridgedModelsFolder(Identifier.fromNamespaceAndPath("computercraft", "block"), ((identifier, resourcePackBuilder) -> {
+        PolymerResourcePackUtils.RESOURCE_PACK_CREATION_EVENT.register(ResourcePackGenerator::build);
+        ResourcePackExtras.forDefault().addBridgedModelsFolder(Identifier.fromNamespaceAndPath("computercraft", "block"), ((identifier, resourcePackBuilder) -> {
             if (identifier.getPath().equals("block/turtle_colour")) {
                 return new ItemAsset(new BasicItemModel(identifier, List.of(new DyeTintSource(0xFFFFFF))), ItemAsset.Properties.DEFAULT);
             }
             return new ItemAsset(new BasicItemModel(identifier), ItemAsset.Properties.DEFAULT);
         }));
-        creator.addAssetSource("computercraft");
-        creator.addAssetSource(ComputerCraftPolymerPatch.MOD_ID);
-        creator.creationEvent.register(ResourcePackGenerator::build);
-        PolymerResourcePackUtils.RESOURCE_PACK_CREATION_EVENT.register(ResourcePackGenerator::build);
-        Path path = FabricLoader.getInstance().getGameDir().resolve(PatchConfig.instance.resourcePackPath);
-        try {
-            creator.build(path);
-            String hash = com.google.common.io.Files.asByteSource(path.toFile()).hash(Hashing.sha1()).toString();
-            AutoHostUtils.registerHostedFile(ID, path);
-
-
-            ServerConfigurationConnectionEvents.CONFIGURE.addPhaseOrdering(Event.DEFAULT_PHASE, RESOURCE_PACK_PHASE);
-            ServerConfigurationConnectionEvents.CONFIGURE.register(RESOURCE_PACK_PHASE, (listener, server) -> {
-                ResourcePackDataProvider provider = ResourcePackDataProvider.getActive();
-
-                listener.addTask(new OptionalResourcePackConfigurationTask(listener, provider.createProperties(listener.getPacketContext(), UUID, ID, hash)));
-            });
-        } catch (ExecutionException | InterruptedException | IOException e) {
-            throw new RuntimeException(e);
-        }
     }
 
     private static void build(ResourcePackBuilder builder) {
@@ -91,41 +62,6 @@ public class ResourcePackGenerator {
 
         builder.addResourceConverter((path, data) -> {
             try {
-                if (path.startsWith("assets/computercraft/items/pocket_computer_")) {
-                    var asset = ItemAsset.fromJson(data.asString());
-                    var replacer = new ItemModel.Replacer[] { null };
-                    replacer[0] = (parent, model) -> {
-                        if (model instanceof SelectItemModel<?, ?> selectItemModel && selectItemModel.switchValue().property() instanceof PocketComputerStateProperty) {
-                            return new SelectItemModel<>(new SelectItemModel.Switch<>(
-                                    new CustomModelDataStringProperty(0),
-                                    selectItemModel.switchValue().cases()
-                                            .stream().map(x -> new SelectItemModel.Case<>(
-                                                    x.values().stream().map(y -> ((ComputerState) y).getSerializedName()).toList(),
-                                                    replacer[0].modifyDeep(model, x.model()))).toList()
-                                    ), selectItemModel.fallback().map(x -> replacer[0].modifyDeep(model, x)), selectItemModel.transformation());
-                        }
-                        if (model instanceof BasicItemModel basicItemModel && basicItemModel.tints().stream().anyMatch(x -> x instanceof PocketComputerLight)) {
-                            return new BasicItemModel(basicItemModel.model(),
-                                    basicItemModel.tints().stream().map(x -> x instanceof PocketComputerLight light ? new CustomModelDataTintSource(0, light.defaultColour()) : x).toList());
-                        }
-                        return model;
-                    };
-                    return PackResource.fromAsset(new ItemAsset(replacer[0].modifyDeep(EmptyItemModel.INSTANCE, asset.model()), asset.properties()));
-                } else if (path.startsWith("assets/computercraft/items/turtle_")) {
-                    var asset = ItemAsset.fromJson(data.asString());
-                    var replacer = new ItemModel.Replacer[] { null };
-                    replacer[0] = (parent, model) -> {
-                        if (model instanceof ConditionItemModel conditionItemModel && conditionItemModel.property() instanceof TurtleShowElfOverlay) {
-                            return replacer[0].modifyDeep(model, conditionItemModel.onTrue());
-                        }
-                        if (model instanceof TurtleOverlayModel || model instanceof TurtleUpgradeItemModel) {
-                            return EmptyItemModel.INSTANCE;
-                        }
-                        return model;
-                    };
-                    return PackResource.fromAsset(new ItemAsset(replacer[0].modifyDeep(EmptyItemModel.INSTANCE, asset.model()), asset.properties()));
-                }
-
                 if (path.startsWith("assets/computercraft/textures/block/monitor_") && path.endsWith(".png")) {
                     var id = Integer.parseInt(path.split("[_.]")[2]);
                     if (id > 15 && id < 32) {
@@ -145,9 +81,60 @@ public class ResourcePackGenerator {
             } catch (Throwable ignored) {
                 ignored.printStackTrace();
             }
-
             return data;
         });
+
+        builder.addPreFinishTask(b -> {
+            b.forEachResource((path, data) -> {
+                if (!path.startsWith("assets/computercraft/items")) return;
+                String modelPath = path.substring("assets/computercraft/items/".length()).replace(".json", "");
+
+                if (path.startsWith("assets/computercraft/items/pocket_computer_")) {
+                    var asset = ItemAsset.fromJson(data.asString());
+                    var replacer = new ItemModel.Replacer[] { null };
+                    replacer[0] = (parent, model) -> {
+                        if (model instanceof SelectItemModel<?, ?> selectItemModel && selectItemModel.switchValue().property() instanceof PocketComputerStateProperty) {
+                            return new SelectItemModel<>(new SelectItemModel.Switch<>(
+                                new CustomModelDataStringProperty(0),
+                                selectItemModel.switchValue().cases()
+                                    .stream().map(x -> new SelectItemModel.Case<>(
+                                        x.values().stream().map(y -> ((ComputerState) y).getSerializedName()).toList(),
+                                        replacer[0].modifyDeep(model, x.model()))).toList()
+                            ), selectItemModel.fallback().map(x -> replacer[0].modifyDeep(model, x)), selectItemModel.transformation());
+                        }
+                        if (model instanceof BasicItemModel basicItemModel && basicItemModel.tints().stream().anyMatch(x -> x instanceof PocketComputerLight)) {
+                            return new BasicItemModel(basicItemModel.model(),
+                                basicItemModel.tints().stream().map(x -> x instanceof PocketComputerLight light ? new CustomModelDataTintSource(0, light.defaultColour()) : x).toList());
+                        }
+                        return model;
+                    };
+
+                    builder.addData(path.replace(".json", SUFFIX + ".json"), PackResource.fromAsset(new ItemAsset(replacer[0].modifyDeep(EmptyItemModel.INSTANCE, asset.model()), asset.properties())));
+                    SPECIAL_MODELS.add(modelPath);
+                } else if (path.startsWith("assets/computercraft/items/turtle_")) {
+                    var asset = ItemAsset.fromJson(data.asString());
+                    var replacer = new ItemModel.Replacer[] { null };
+                    replacer[0] = (parent, model) -> {
+                        if (model instanceof ConditionItemModel conditionItemModel && conditionItemModel.property() instanceof TurtleShowElfOverlay) {
+                            return replacer[0].modifyDeep(model, conditionItemModel.onTrue());
+                        }
+                        if (model instanceof TurtleOverlayModel || model instanceof TurtleUpgradeItemModel) {
+                            return EmptyItemModel.INSTANCE;
+                        }
+                        return model;
+                    };
+                    builder.addData(path.replace(".json", SUFFIX + ".json"), PackResource.fromAsset(new ItemAsset(replacer[0].modifyDeep(EmptyItemModel.INSTANCE, asset.model()), asset.properties())));
+                    SPECIAL_MODELS.add(modelPath);
+                }
+            });
+        });
+    }
+
+    public static Identifier specialModel(Identifier model) {
+        if (ResourcePackGenerator.SPECIAL_MODELS.contains(model.getPath())) {
+            return model.withSuffix(ResourcePackGenerator.SUFFIX);
+        }
+        return model;
     }
 
     private static void loadData() {

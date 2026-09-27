@@ -8,7 +8,6 @@
 		"mod.ComputerCraftMixin",
 		"mod.PlatformHelperImplRegistryEntryImplMixin",
 		"mod.ServerCommonPacketListenerImplMixin",
-		"mod.ServerConfigurationPacketListenerImplMixin",
 		"mod.block.CustomLecternBlockMixin",
 		"mod.block.GenericBlockModelMixin",
 		"mod.block.ModRegistryBlocksMixin",
